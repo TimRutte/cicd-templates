@@ -1,0 +1,54 @@
+name: 'Create EC2 AMI'
+description: |
+  This template creates a new EC2 AMI on AWS, based on a given Instance (INSTANCE_ID).
+  The AMI will be created and the new ID will be available as output variable. The new AMI will be named as $IMAGE_PREFIX-$github.sha
+author: 'Tim Rutte <info@timrutte.de>'
+inputs:
+  INSTANCE_ID:
+    description: "ID of old EC2 instance"
+    required: true
+
+  AWS_ACCESS_KEY_ID:
+    description: "AWS access key id"
+    required: true
+  AWS_SECRET_ACCESS_KEY:
+    description: "AWS secret access key"
+    required: true
+  AWS_DEFAULT_REGION:
+    description: "Default AWS region"
+    default: "eu-west-1"
+    required: true
+
+  IMAGE_PREFIX:
+    description: "Prefix for new instance"
+    default: ""
+    required: false
+
+outputs:
+  NEW_IMAGE_ID:
+    description: "New EC2 AMI ID"
+    value: ${{ steps.outputs.newimageid.new_image_id }}
+
+runs:
+  using: "composite"
+  steps:
+  - name: Configure AWS Credentials
+    uses: aws-actions/configure-aws-credentials@v1
+    with:
+      aws-access-key-id: ${{ inputs.AWS_ACCESS_KEY_ID }}
+      aws-secret-access-key: ${{ inputs.AWS_SECRET_ACCESS_KEY }}
+      aws-region: ${{ inputs.AWS_DEFAULT_REGION }}
+
+  - id: newimageid
+    shell: bash
+    run: |
+      NEW_IMAGE_ID="$(aws ec2 create-image --instance-id ${{ inputs.INSTANCE_ID }} --name "${{ inputs.IMAGE_PREFIX }}-${{ github.sha }}" --output text --query 'ImageId')"
+      echo "new_image_id=${NEW_IMAGE_ID}" >> $GITHUB_OUTPUT
+      echo "NEW_IMAGE_ID=${NEW_IMAGE_ID}" >> $GITHUB_ENV
+
+  - name: Wait for new image
+    shell: bash
+    run: |
+      echo "Wait for new image ${{ inputs.IMAGE_PREFIX }}-${{ github.sha }} (${{ env.NEW_IMAGE_ID }})"
+      aws ec2 wait image-exists --image-ids ${{ env.NEW_IMAGE_ID }}
+      aws ec2 wait image-available --image-ids ${{ env.NEW_IMAGE_ID }}
