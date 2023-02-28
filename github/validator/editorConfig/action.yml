@@ -1,0 +1,27 @@
+name: Validate Project with Editor Config
+description: |
+  Checks your project with your `.editorconfig` file.
+author: 'Tim Rutte <info@timrutte.de>'
+inputs:
+  PROJECT_DIR:
+    description: "Project dir"
+    default: "."
+    required: true
+    
+runs:
+  using: 'composite'
+  steps:
+  - name: "Install golang"
+    uses: actions/setup-go@v3
+
+  - name: "Install editorconfig checker"
+    shell: bash
+    run: |+
+      go install github.com/editorconfig-checker/editorconfig-checker/cmd/editorconfig-checker@latest
+      ln -s ~/go/bin/editorconfig-checker /usr/local/bin/ec
+
+  - name: "Validate editorconfig file from project dir."
+    shell: bash
+    run: |
+      cd ${{ inputs.PROJECT_DIR }} || exit 1
+      ec -v

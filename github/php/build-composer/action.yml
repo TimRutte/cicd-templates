@@ -1,0 +1,30 @@
+name: PHP Composer install
+description: |
+  Run `composer install` against your `PROJECT_DIR`.
+author: 'Tim Rutte <info@timrutte.de>'
+inputs:
+  PROJECT_DIR:
+    description: "Project dir"
+    default: "."
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout Repo
+      uses: actions/checkout@v3
+
+    - name: "Change directory to PROJECT_DIR"
+      shell: bash
+      run: cd "${{ inputs.PROJECT_DIR }}" || exit 1
+
+    - uses: php-actions/composer@v6
+      with:
+        version: latest
+        command: install
+        args: --ignore-platform-reqs
+
+    - uses: actions/upload-artifact@v3  
+      if: success()
+      with:
+        name: artifact-results
+        path: vendor/

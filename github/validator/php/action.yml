@@ -1,0 +1,25 @@
+name: Validate PHP project files
+description: |
+  Runs a PHP linter on all your files in `PROJECT_DIR`. The linter is uses a PHP 8.0 environment.
+  The linter will get all .php files recursive below `PROJECT_DIR` and run the linting process per file.
+author: 'Tim Rutte <info@timrutte.de>'
+inputs:
+  PROJECT_DIR:
+    description: "Project dir"
+    default: "."
+    required: true
+    
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout Repo
+      uses: actions/checkout@v3
+
+    - name: Setup PHP Action
+      uses: shivammathur/setup-php@2.22.0
+      with:
+        php-version: 8.0
+
+    - name: Run script
+      shell: bash
+      run: ${{ github.action_path }}/lint.sh "${{ inputs.PROJECT_DIR }}"

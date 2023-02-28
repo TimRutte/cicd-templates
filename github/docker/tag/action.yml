@@ -1,0 +1,58 @@
+name: Retag Docker Image for AWS ECR
+description: |
+  Sometimes you need to retag your Docker image, e.g. you want to build the newest version with a version tag like :1.2.3 and also want to tag it as :latest, rebuild is a bad option here.
+  The resulted image will be pushed to the ECR repository.
+author: 'Tim Rutte <info@timrutte.de>'
+inputs:
+  IMAGE_NAME:
+    description: "Old image name"
+    required: true
+    #default: "${{ env.AWS_REGISTRY }}/${{ github.event.repository.name }}:${{ github.ref_name }}"
+  NEW_NAME:
+    description: "new image name"
+    required: true
+    #default: "${{ env.AWS_REGISTRY }}/${{ github.event.repository.name }}:latest"
+
+  AWS_ACCESS_KEY_ID:
+    description: "AWS access key id"
+    required: true
+  AWS_SECRET_ACCESS_KEY:
+    description: "AWS secret access key"
+    required: true
+  AWS_DEFAULT_REGION:
+    description: "Default AWS region"
+    default: "eu-west-1"
+    required: true
+
+  REGISTRY_USER:
+    description: "User to access remote registry"
+    required: false
+  REGISTRY_PASSWORD:
+    description: "Password to access remote registry"
+    required: false
+  REGISTRY_URL:
+    description: "Remote registry URL"
+    required: false
+
+runs:
+  using: "composite"
+  steps:
+  - name: Configure AWS Credentials
+    uses: aws-actions/configure-aws-credentials@v1
+    with:
+      aws-access-key-id: ${{ inputs.AWS_ACCESS_KEY_ID }}
+      aws-secret-access-key: ${{ inputs.AWS_SECRET_ACCESS_KEY }}
+      aws-region: ${{ inputs.AWS_DEFAULT_REGION }}
+
+  - name: Login to Amazon ECR
+    id: login-ecr
+    uses: aws-actions/amazon-ecr-login@v1
+
+  - name: Build and push docker image
+    uses: xvpn/kp_cicd_templates/docker/tag-externalProvider@v2
+    with:
+      IMAGE_NAME: "${{ inputs.IMAGE_NAME }}"
+      NEW_NAME: "${{ inputs.NEW_NAME }}"
+      REGISTRY_USER: "${{ inputs.REGISTRY_USER }}"
+      REGISTRY_PASSWORD: "${{ inputs.REGISTRY_PASSWORD }}"
+      REGISTRY_URL: "${{ inputs.REGISTRY_URL }}"

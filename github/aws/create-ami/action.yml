@@ -1,7 +1,7 @@
-name: 'Create EC2 AMI'
+name: 'Create AMI'
 description: |
-  This template creates a new EC2 AMI on AWS, based on a given Instance (INSTANCE_ID).
-  The AMI will be created and the new ID will be available as output variable. The new AMI will be named as $IMAGE_PREFIX-$github.sha
+  This template creates an AMI on AWS, based on a given Instance (INSTANCE_ID).
+  The AMI will be created and the new ID will be available as output variable. The new AMI will be named as $IMAGE_PREFIX-$github.sha (e.g. `projectx-fe96167`)
 author: 'Tim Rutte <info@timrutte.de>'
 inputs:
   INSTANCE_ID:
@@ -26,8 +26,8 @@ inputs:
 
 outputs:
   NEW_IMAGE_ID:
-    description: "New EC2 AMI ID"
-    value: ${{ steps.outputs.newimageid.new_image_id }}
+    description: "New EC2 image ID"
+    value: ${{ steps.newimageid.outputs.new_image_id }}
 
 runs:
   using: "composite"
@@ -39,16 +39,16 @@ runs:
       aws-secret-access-key: ${{ inputs.AWS_SECRET_ACCESS_KEY }}
       aws-region: ${{ inputs.AWS_DEFAULT_REGION }}
 
-  - id: newimageid
+  - name: Create New Image
+    id: newimageid
     shell: bash
     run: |
       NEW_IMAGE_ID="$(aws ec2 create-image --instance-id ${{ inputs.INSTANCE_ID }} --name "${{ inputs.IMAGE_PREFIX }}-${{ github.sha }}" --output text --query 'ImageId')"
       echo "new_image_id=${NEW_IMAGE_ID}" >> $GITHUB_OUTPUT
-      echo "NEW_IMAGE_ID=${NEW_IMAGE_ID}" >> $GITHUB_ENV
-
+      
   - name: Wait for new image
     shell: bash
     run: |
-      echo "Wait for new image ${{ inputs.IMAGE_PREFIX }}-${{ github.sha }} (${{ env.NEW_IMAGE_ID }})"
-      aws ec2 wait image-exists --image-ids ${{ env.NEW_IMAGE_ID }}
-      aws ec2 wait image-available --image-ids ${{ env.NEW_IMAGE_ID }}
+      echo "Wait for new image ${{ inputs.IMAGE_PREFIX }}-${{ github.sha }} (${{ steps.newimageid.outputs.new_image_id }})"
+      aws ec2 wait image-exists --image-ids ${{ steps.newimageid.outputs.new_image_id }}
+      aws ec2 wait image-available --image-ids ${{ steps.newimageid.outputs.new_image_id }}

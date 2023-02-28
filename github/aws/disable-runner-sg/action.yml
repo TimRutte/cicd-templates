@@ -1,0 +1,45 @@
+name: 'Add GitHub runner IP to Security Group'
+description: |
+  Using this template will disable your github runner access into the AWS infrastructure
+author: 'Tim Rutte <info@timrutte.de>'
+inputs:
+  AWS_ACCESS_KEY_ID:
+    description: "AWS access key id"
+    required: true
+  AWS_SECRET_ACCESS_KEY:
+    description: "AWS secret access key"
+    required: true
+  AWS_DEFAULT_REGION:
+    description: "Default AWS region"
+    default: "eu-west-1"
+    required: true
+  AWS_SG_ID:
+    description: "Security Group ID you need to modify"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+
+  - name: Configure AWS Credentials
+    uses: aws-actions/configure-aws-credentials@v1
+    with:
+      aws-access-key-id: ${{ inputs.AWS_ACCESS_KEY_ID }}
+      aws-secret-access-key: ${{ inputs.AWS_SECRET_ACCESS_KEY }}
+      aws-region: ${{ inputs.AWS_DEFAULT_REGION }}
+
+  - name: Register GitHub Runner IP 
+    id: ip
+    shell: bash
+    run: |
+      IPv4="$(curl -4 https://whatsmyip.devops.kape.com)"
+      echo "ipv4=$IPv4" >> $GITHUB_OUTPUT
+
+  - name: Remove GitHub Runner IP to Security Group
+    shell: bash
+    run: |
+      aws ec2 revoke-security-group-ingress --group-id ${{ inputs.AWS_SG_ID }} --protocol tcp --port 22 --cidr ${{ steps.ip.outputs.ipv4 }}/32
+    env:
+      AWS_ACCESS_KEY_ID: ${{ inputs.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ inputs.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ inputs.AWS_DEFAULT_REGION }}

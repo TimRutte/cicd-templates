@@ -1,0 +1,53 @@
+name: Validate GoLang project
+description: |
+  Run the staticcheck linter on your Go project. We are excluding the `SA5001`check right now.
+  
+  All internal dependencies are cloned via HTTPS, instead of Git-SSH.
+author: 'Tim Rutte <info@timrutte.de>'
+inputs:
+  PROJECT_DIR:
+    description: "Project dir"
+    default: "."
+    required: true
+
+  CI_JOB_TOKEN:
+    description: "Token used for authentication against CI_SERVER_HOST"
+    default: "${{ github.token }}"
+    required: true
+  CI_SERVER_HOST:
+    description: "Server host, e.g. github.com"
+    default: "github.com"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout Repo
+      uses: actions/checkout@v3
+
+    - name: "Install golang"
+      uses: actions/setup-go@v3
+
+    - name: Set git insteadOf rules
+      shell: bash
+      run: |
+        git config --global --add url."https://${{ inputs.CI_JOB_TOKEN }}@${{ inputs.CI_SERVER_HOST }}/".insteadOf "ssh://git@${{ inputs.CI_SERVER_HOST }}/"
+        git config --global --add url."https://${{ inputs.CI_JOB_TOKEN }}@${{ inputs.CI_SERVER_HOST }}/".insteadOf "ssh://${{ inputs.CI_SERVER_HOST }}/"
+        git config --global --add url."https://${{ inputs.CI_JOB_TOKEN }}@${{ inputs.CI_SERVER_HOST }}/".insteadOf "git://${{ inputs.CI_SERVER_HOST }}/"
+        git config --global --add url."https://${{ inputs.CI_JOB_TOKEN }}@${{ inputs.CI_SERVER_HOST }}/".insteadOf "https://${{ inputs.CI_SERVER_HOST }}/"
+
+    # @TODO: Replace with better solution
+    - name: Install staticcheck
+      shell: bash
+      run: |
+        go install honnef.co/go/tools/cmd/staticcheck@latest
+        ln -s ~/go/bin/staticcheck /usr/local/bin/staticcheck
+
+    - name: Run script
+      shell: bash
+      run: |
+        staticcheck -checks=["inherit","-SA5001"] "${{ inputs.PROJECT_DIR }}/..."
+
+    - name: Remove git insteadOf rules
+      shell: bash
+      run: git config --global --remove-section url."https://${{ inputs.CI_JOB_TOKEN }}@${{ inputs.CI_SERVER_HOST }}/"

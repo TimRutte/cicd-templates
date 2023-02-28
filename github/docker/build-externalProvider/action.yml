@@ -1,0 +1,109 @@
+name: Build and push Docker Image
+description: |
+  Build and push your docker image and also run a trivy check against the built image before pushing it to the remote registry.
+  Before the build process the job will call the `pre_build.sh` script, located in the `CICD_DIR` with `PARAM_PREBUILD`. If the file not exist, nothing will happen.
+  After the build process the job will call the `post_build.sh` script, located in the `CICD_DIR` with `POST_PREBUILD`. If the file not exist, nothing will happen.
+author: 'Tim Rutte <info@timrutte.de>'
+inputs:
+  IMAGE_NAME:
+    description: "Full name of the docker image, inclusive registry"
+    required: true
+  CONTEXT_DIR:
+    description: "Context dir for docker build command"
+    default: "."
+    required: true
+  EXTRA_BUILD_ARGS:
+    description: "extra docker build parameters"
+    required: false
+  DOCKERFILE_PATH:
+    description: "Path to the Dockerfile"
+    default: "docker"
+    required: true
+  GH_TOKEN:
+    description: "Github Token required to interact with XVPN private Github repos"
+    required: true
+
+  TRIVY_IGNORE:
+    description: "Ignored CVEs for Trivy checks"
+    default: "CVE-2021-43816 CVE-2022-1586 CVE-2022-1587 CVE-2022-32207"
+    required: true
+
+  CICD_DIR:
+    description: "Default CI/CD directory, used for special files like pre_deployment-scripts"
+    default: ".cicd"
+    required: true
+  PARAM_PRESCRIPT:
+    description: "Parameter for pre_build.sh"
+    required: false
+  PARAM_POSTSCRIPT:
+    description: "Parameter for post_build.sh"
+    required: false
+
+  REGISTRY_USER:
+    description: "User to access remote registry"
+    required: false
+  REGISTRY_PASSWORD:
+    description: "Password to access remote registry"
+    required: false
+  REGISTRY_URL:
+    description: "Remote registry URL"
+    required: false
+runs:
+  using: "composite"
+  steps:
+    - name: "Login to REGISTRY_URL, if credentials are present."
+      shell: bash
+      run: |
+        if [[ -n "${{ inputs.REGISTRY_USER }}" && -n "${{ inputs.REGISTRY_PASSWORD }}" && -n "${{ inputs.REGISTRY_URL }}" ]]; then
+          docker login -u "${{ inputs.REGISTRY_USER }}" -p "${{ inputs.REGISTRY_PASSWORD }}" "${{ inputs.REGISTRY_URL }}";
+        fi
+
+    - name: Checkout Repo
+      uses: actions/checkout@v3
+
+    - name: "Run pre_build.sh"
+      shell: bash
+      run: |
+        if test -f "${{ inputs.CICD_DIR }}/pre_build.sh"; then bash "${{ inputs.CICD_DIR }}/pre_build.sh" ${{ inputs.PARAM_PRESCRIPT }}; fi
+
+    - name: Build docker image
+      shell: bash
+      run: |
+        docker build --pull -t "${{ inputs.IMAGE_NAME }}" \
+          --build-arg CI_SSH_KEY="${{ inputs.CI_SSH_KEY }}" \
+          --build-arg CI_JOB_TOKEN="${{ inputs.GH_TOKEN }}" \
+        ${{ inputs.EXTRA_BUILD_ARGS }} \
+        -f "${{ inputs.DOCKERFILE_PATH }}/Dockerfile" \
+        "${{ inputs.CONTEXT_DIR }}/"
+
+    - name: "Merge .trivyignore file"
+      shell: bash
+      run: |
+        mkdir -p "${{ inputs.CICD_DIR }}"
+        touch "${{ inputs.CICD_DIR }}/.trivyignore"
+        for ignore in $(echo ${{ inputs.TRIVY_IGNORE }} | tr " " "\n"); do echo "$ignore" >> "${{ inputs.CICD_DIR }}/.trivyignore"; done
+
+    - name: "Run trivy security check"
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: '${{ inputs.IMAGE_NAME }}'
+        format: 'table'
+        exit-code: '1'
+        trivyignores: "${{ inputs.CICD_DIR }}/.trivyignore"
+        ignore-unfixed: true
+        vuln-type: 'os,library'
+        severity: 'CRITICAL'
+
+    - name: "Push image"
+      shell: bash
+      run: docker push "${{ inputs.IMAGE_NAME }}"
+
+    - name: "Run post_build.sh"
+      shell: bash
+      run: if test -f "${{ inputs.CICD_DIR }}/post_build.sh"; then bash "${{ inputs.CICD_DIR }}/post_build.sh" ${{ inputs.PARAM_POSTSCRIPT }}; fi
+
+    - name: "Docker logout, if exists"
+      shell: bash
+      run: |
+        if [[ -z "${{ inputs.REGISTRY_URL }}" ]]; then docker logout "${{ inputs.REGISTRY_URL }}"; fi
+

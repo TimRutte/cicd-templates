@@ -1,0 +1,49 @@
+name: 'deployCode'
+description: 'Deploy Code to remote host via SSH'
+author: 'Tim Rutte <info@timrutte.de>'
+inputs:
+  SERVER_IP:
+    description: "Remote host IP"
+    required: true
+
+  SSH_PRIVATEKEY:
+    description: "SSH private key to access the remote host, must be without passphrase"
+    required: true
+  SSH_USER:
+    description: "Remote host ssh user"
+    required: true
+  SSH_PORT:
+    description: "Remote host ssh port"
+    default: "22"
+    required: true
+
+  TEMP_DEPLOYMENT_PATH:
+    description: ""
+    default: "/tmp/deployment_${{ github.event.repository.name }}_${{ github.sha }}/"
+    required: true
+
+  FILEPATH_ARCHIVE:
+    description: "Path to archive"
+    default: "${{ runner.temp }}/deployment_${{ github.event.repository.name }}_${{ github.sha }}.tar.gz"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Add SSH private key
+      shell: bash
+      run: |
+        eval $(ssh-agent -s)
+        ssh-add <(echo "${{ inputs.SSH_PRIVATEKEY }}")
+
+    - name: Run script
+      shell: bash
+      run: |
+        echo "Prepare ${{ inputs.TEMP_DEPLOYMENT_PATH }} dir"
+        ssh -p ${{ inputs.SSH_PORT }} ${{ inputs.SSH_USER }}@${{ inputs.SERVER_IP }} "mkdir -p ${{ inputs.TEMP_DEPLOYMENT_PATH }}"
+        echo "Sync code"
+        rsync -avz -e "ssh -p ${{ inputs.SSH_PORT }}" "${{ inputs.FILEPATH_ARCHIVE }}" ${{ inputs.SSH_USER }}@${{ inputs.SERVER_IP }}:/tmp/deployment_${{ github.event.repository.name }}_${{ github.sha }}.tar.gz
+        echo "Unpack code to /tmp/deployment_${{ github.event.repository.name }}_${{ github.sha }}"
+        ssh -p ${{ inputs.SSH_PORT }} ${{ inputs.SSH_USER }}@${{ inputs.SERVER_IP }} "cd ${{ inputs.TEMP_DEPLOYMENT_PATH }} && tar xfvz /tmp/deployment_${{ github.event.repository.name }}_${{ github.sha }}.tar.gz && rm /tmp/deployment_${{ github.event.repository.name }}_${{ github.sha }}.tar.gz"
+        echo "Remove local packed code."
+        rm "${{ inputs.FILEPATH_ARCHIVE }}"

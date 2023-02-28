@@ -1,0 +1,45 @@
+name: AWS Autoscaling Instance Refresh
+description: | 
+  Triggers an Instance Refresh on AWS.
+  It will replace all instances with the current autoscaling group configuration, in most cases you want to update your Launch Template first.
+author: 'Tim Rutte <info@timrutte.de>'
+inputs:
+  AWS_ACCESS_KEY_ID:
+    description: "AWS access key id"
+    required: true
+  AWS_SECRET_ACCESS_KEY:
+    description: "AWS secret access key"
+    required: true
+  AWS_DEFAULT_REGION:
+    description: "Default AWS region"
+    default: "eu-west-1"
+    required: true
+
+  GROUP_NAME:
+    description: "Group name in AWS"
+    required: true
+  REFRESH_MIN_HEALTH:
+    description: "Min health before removing instance"
+    default: "50"
+    required: true
+  REFRESH_WARMUP:
+    description: "Seconds to wait until test instance"
+    default: "30"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+
+  - name: Configure AWS Credentials
+    uses: aws-actions/configure-aws-credentials@v1
+    with:
+      aws-access-key-id: ${{ inputs.AWS_ACCESS_KEY_ID }}
+      aws-secret-access-key: ${{ inputs.AWS_SECRET_ACCESS_KEY }}
+      aws-region: ${{ inputs.AWS_DEFAULT_REGION }}
+
+  - name: Run script
+    shell: bash
+    run: |
+      INSTANCE_REFRESH_ID=$(aws autoscaling start-instance-refresh --auto-scaling-group-name "${{ inputs.GROUP_NAME }}" --preferences MinHealthyPercentage=${{ inputs.REFRESH_MIN_HEALTH }},InstanceWarmup=${{ inputs.REFRESH_WARMUP }} --output text --query 'InstanceRefreshId')
+      while STATE=$(aws autoscaling describe-instance-refreshes --auto-scaling-group-name "${{ inputs.GROUP_NAME }}" --instance-refresh-ids ${INSTANCE_REFRESH_ID} --output text --query 'InstanceRefreshes[0].Status'); test "$STATE" != "Successful"; do sleep 1; done

@@ -1,0 +1,96 @@
+name: Deploy to k8s via kustomize
+description: |
+  Runs `kubectl apply -k $kustomizePath` a k8s-Cluster. Currently only AWS k8s cluster supported.
+  
+  The script sets also a new image, you can use the `IMAGE_NAME` variable as to set this name, e.g. `example-image=gitlab.kape.com:5001/.../myproject:latest`.
+  
+  Before the deploy process the Job will call the `pre_deployment.sh` script, located in the `CICD_DIR` with `PARAM_PRESCRIPT`. If the file not exist, nothing will happen.
+  After the deploy process the Job will call the `post_deployment.sh` script, located in the `CICD_DIR` with `POST_PRESCRIPT`. If the file not exist, nothing will happen.
+author: 'Tim Rutte <info@timrutte.de>'
+inputs:
+  CLUSTER_NAME:
+    description: ""
+    required: true
+  KUSTOMIZE_PATH:
+    description: "Path of kustomize overlay directory"
+    required: true
+  IMAGE_NAME:
+    description: "Docker image name"
+    required: true
+    #default: "${{ env.AWS_REGISTRY }}/${{ github.event.repository.name }}:${{ github.ref_name }}"
+
+  AWS_ACCESS_KEY_ID:
+    description: "AWS access key id"
+    required: true
+  AWS_SECRET_ACCESS_KEY:
+    description: "AWS secret access key"
+    required: true
+  AWS_DEFAULT_REGION:
+    description: "Default AWS region"
+    default: "eu-west-1"
+    required: true
+
+  CICD_DIR:
+    description: "Default CI/CD directory, used for special files like pre_deployment-scripts"
+    default: ".cicd"
+    required: false 
+  PARAM_PRESCRIPT:
+    description: "Parameter for pre_deployment.sh"
+    required: false
+  PARAM_POSTSCRIPT:
+    description: "Parameter for post_deployment.sh"
+    required: false
+  PRIVATE_KEY:
+    description: "GPG Private key, to decrypt secret files. CAUTION: Just temporary solution!"
+    required: false
+
+runs:
+  using: "composite"
+  steps:
+    - name: "Install kubectl"
+      uses: azure/setup-kubectl@v3
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-access-key-id: ${{ inputs.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ inputs.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ inputs.AWS_DEFAULT_REGION }}
+
+    - name: "Set kube config"
+      shell: bash
+      run: | 
+        aws eks update-kubeconfig --name "${{ inputs.CLUSTER_NAME }}" --kubeconfig "${{ runner.temp }}/.kube/kubeconfig_${{ github.job }}"
+
+    - name: Checkout Repo
+      uses: actions/checkout@v3
+
+    - name: "Import gpg key, if existing"
+      shell: bash
+      run: if test -n "${{ inputs.PRIVATE_KEY }}"; then echo -n "${{ inputs.PRIVATE_KEY }}" | gpg --import; fi
+
+    - name: "Run pre script"
+      shell: bash
+      run: if test -f "${{ inputs.CICD_DIR }}/pre_deployment.sh"; then bash "${{ inputs.CICD_DIR }}/pre_deployment.sh" ${{ inputs.PARAM_PRESCRIPT }}; fi
+
+    - name: "Deploy via kustomize"
+      shell: bash
+      run: |
+        if test -n "${{ inputs.IMAGE_NAME }}"; then
+          cd "${{ inputs.KUSTOMIZE_PATH }}"
+          echo "Install kustomize"
+          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh"  | bash
+          echo "Set new image"
+          ./kustomize edit set image "${{ inputs.IMAGE_NAME }}";
+        fi
+        cd "${{ github.workspace }}"
+        kubectl --kubeconfig "${{ runner.temp }}/.kube/kubeconfig_${{ github.job }}" apply -k ${{ inputs.KUSTOMIZE_PATH }}
+        rm "${{ runner.temp }}/.kube/kubeconfig_${{ github.job }}"
+
+    - name: "Run post script"
+      shell: bash
+      run: if test -f "${{ inputs.CICD_DIR }}/post_deployment.sh"; then bash "${{ inputs.CICD_DIR }}/post_deployment.sh" ${{ inputs.PARAM_POSTSCRIPT }}; fi
+
+    - name: "Remove gpg files"
+      shell: bash
+      run: rm -rf $(gpg --help | grep Home | cut -d ':' -f2 | tr -d ' ')

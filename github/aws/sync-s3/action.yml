@@ -1,0 +1,39 @@
+name: Sync to S3 bucket
+description: |
+  Sync content of `PROJECT_PATH` to `S3_BUCKET`. Used for example for this documentation to sync it in the S3 bucket.
+author: 'Tim Rutte <info@timrutte.de>'
+inputs:
+  AWS_ACCESS_KEY_ID:
+    description: "AWS access key id"
+    required: true
+  AWS_SECRET_ACCESS_KEY:
+    description: "AWS secret access key"
+    required: true
+  AWS_DEFAULT_REGION:
+    description: "Default AWS region"
+    default: "eu-west-1"
+    required: true
+
+  S3_BUCKET:
+    description: "Address of S3 bucket"
+    required: true
+
+  PROJECT_PATH:
+    description: "Project path"
+    default: "."
+    required: true
+
+
+runs:
+  using: "composite"
+  steps:
+  - name: Configure AWS Credentials
+    uses: aws-actions/configure-aws-credentials@v1
+    with:
+      aws-access-key-id: ${{ inputs.AWS_ACCESS_KEY_ID }}
+      aws-secret-access-key: ${{ inputs.AWS_SECRET_ACCESS_KEY }}
+      aws-region: ${{ inputs.AWS_DEFAULT_REGION }}
+
+  - name: Sync with S3 bucket
+    shell: bash
+    run: aws s3 sync --delete "${{ inputs.PROJECT_PATH }}" s3://${{ inputs.S3_BUCKET }}/

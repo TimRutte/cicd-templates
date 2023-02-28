@@ -1,0 +1,57 @@
+name: Update AWS Launch Template
+description: |
+  Sets a new AMI for Launch Template and sets the default version to the new created version.
+author: 'Tim Rutte <info@timrutte.de>'
+inputs:
+  AWS_ACCESS_KEY_ID:
+    description: "AWS access key id"
+    required: true
+  AWS_SECRET_ACCESS_KEY:
+    description: "AWS secret access key"
+    required: true
+  AWS_DEFAULT_REGION:
+    description: "Default AWS region"
+    default: "eu-west-1"
+    required: true
+
+  NEW_IMAGE_ID:
+    description: "ID of the source image"
+    required: true
+
+  LAUNCH_TEMPLATE_ID:
+    description: "ID of launch template"
+    required: true
+
+  SOURCE_REGION:
+    description: "Source region for image"
+    default: "eu-west-1"
+    required: true
+  IMAGE_PREFIX:
+    description: ""
+    required: true
+runs:
+  using: "composite"
+  steps:
+  - name: Configure AWS Credentials
+    uses: aws-actions/configure-aws-credentials@v1
+    with:
+      aws-access-key-id: ${{ inputs.AWS_ACCESS_KEY_ID }}
+      aws-secret-access-key: ${{ inputs.AWS_SECRET_ACCESS_KEY }}
+      aws-region: ${{ inputs.AWS_DEFAULT_REGION }}
+
+  - name: Copy image, if needed
+    shell: bash
+    run: |
+      if [ ! $(aws ec2 describe-images --image-ids ${{ inputs.NEW_IMAGE_ID }} --output text 2>/dev/null && true || false) ]; then
+        echo "Copy image from ${{ inputs.SOURCE_REGION }}"
+        IMAGE_ID="$(aws ec2 copy-image --source-image-id ${{ inputs.NEW_IMAGE_ID }} --name "${{ inputs.IMAGE_PREFIX }}-${{ github.sha }}" --source-region ${{ inputs.SOURCE_REGION }} --output text --query 'ImageId')";
+        aws ec2 wait image-exists --image-ids $IMAGE_ID
+        aws ec2 wait image-available --image-ids $IMAGE_ID
+      fi
+
+  - name: Run script
+    shell: bash
+    run: |
+      OLD_DEFAULT_VERSION="$(aws ec2 describe-launch-template-versions --filters "Name=is-default-version,Values=true" --launch-template-id ${{ inputs.LAUNCH_TEMPLATE_ID }} --output json --query 'LaunchTemplateVersions[0].VersionNumber')"
+      NEW_TEMPLATE_VERSION="$(aws ec2 create-launch-template-version --launch-template-id ${{ inputs.LAUNCH_TEMPLATE_ID }} --launch-template-data "{\"ImageId\": \"${{ inputs.NEW_IMAGE_ID }}\"}" --source-version ${OLD_DEFAULT_VERSION} --output text --query "LaunchTemplateVersion.VersionNumber")"
+      aws ec2 modify-launch-template --launch-template-id "${{ inputs.LAUNCH_TEMPLATE_ID }}" --default-version "${NEW_TEMPLATE_VERSION}"

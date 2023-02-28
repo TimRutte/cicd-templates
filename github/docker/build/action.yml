@@ -1,0 +1,97 @@
+name: Build and push Docker Image
+description: |
+  Build and push your docker image and also run a trivy check against the built image before pushing it to the ECR registry.
+  Before the build process the job will call the `pre_build.sh` script, located in the `CICD_DIR` with `PARAM_PREBUILD`. If the file not exist, nothing will happen.
+  After the build process the job will call the `post_build.sh` script, located in the `CICD_DIR` with `POST_PREBUILD`. If the file not exist, nothing will happen.
+author: 'Tim Rutte <info@timrutte.de>'
+inputs:
+  IMAGE_NAME:
+    description: "Full name of the docker image, inclusive registry"
+    required: true
+#    default: "${{ github.event.repository.name }}:${{ github.ref_name }}"
+  CONTEXT_DIR:
+    description: "Context dir for docker build command"
+    default: "."
+    required: true
+  EXTRA_BUILD_ARGS:
+    description: "extra docker build parameters"
+    required: false
+  DOCKERFILE_PATH:
+    description: "Path to the Dockerfile"
+    default: "docker"
+    required: true
+  GH_TOKEN:
+    description: "Github Token required to interact with XVPN private Github repos"
+    required: true
+
+  TRIVY_IGNORE:
+    description: "Ignored CVEs for Trivy checks"
+    default: "CVE-2021-43816 CVE-2022-1586 CVE-2022-1587 CVE-2022-32207"
+    required: true
+
+  CICD_DIR:
+    description: "Default CI/CD directory, used for special files like pre_deployment-scripts"
+    default: ".cicd"
+    required: true
+  PARAM_PRESCRIPT:
+    description: "Parameter for pre_build.sh"
+    required: false
+  PARAM_POSTSCRIPT:
+    description: "Parameter for post_build.sh"
+    required: false
+
+  AWS_ACCESS_KEY_ID:
+    description: "AWS access key id"
+    required: false
+  AWS_SECRET_ACCESS_KEY:
+    description: "AWS secret access key"
+    required: false
+  AWS_DEFAULT_REGION:
+    description: "Default AWS region"
+    default: "eu-west-1"
+    required: false
+
+  REGISTRY_USER:
+    description: "User to access remote registry"
+    required: false
+  REGISTRY_PASSWORD:
+    description: "Password to access remote registry"
+    required: false
+  REGISTRY_URL:
+    description: "Remote registry URL"
+    required: false
+runs:
+  using: "composite"
+  steps:
+  - name: Configure AWS Credentials
+    uses: aws-actions/configure-aws-credentials@v1
+    with:
+      aws-access-key-id: ${{ inputs.AWS_ACCESS_KEY_ID }}
+      aws-secret-access-key: ${{ inputs.AWS_SECRET_ACCESS_KEY }}
+      aws-region: ${{ inputs.AWS_DEFAULT_REGION }}
+
+  - name: Login to Amazon ECR
+    id: login-ecr
+    uses: aws-actions/amazon-ecr-login@v1
+
+  - name: "Check or create ECR Repository"
+    shell: bash
+    run: |
+      AWS_REPOSITORY="$(echo ${{ inputs.IMAGE_NAME }} | rev | cut -d ':' -f2- | cut -d '/' -f1 | rev)"
+      aws ecr describe-repositories --repository-names ${AWS_REPOSITORY:?} || aws ecr create-repository --repository-name ${AWS_REPOSITORY:?}
+
+  - name: Build and push docker image
+    uses: xvpn/kp_cicd_templates/docker/build-externalProvider@v2
+    with:
+      IMAGE_NAME: "${{ steps.login-ecr.outputs.registry }}/${{ inputs.IMAGE_NAME }}"
+      CONTEXT_DIR: "${{ inputs.CONTEXT_DIR }}"
+      EXTRA_BUILD_ARGS: "${{ inputs.EXTRA_BUILD_ARGS }}"
+      DOCKERFILE_PATH: "${{ inputs.DOCKERFILE_PATH }}"
+      GH_TOKEN: "${{ inputs.GH_TOKEN }}"
+      TRIVY_IGNORE: "${{ inputs.TRIVY_IGNORE }}"
+      CICD_DIR: "${{ inputs.CICD_DIR }}"
+      PARAM_PRESCRIPT: "${{ inputs.PARAM_PRESCRIPT }}"
+      PARAM_POSTSCRIPT: "${{ inputs.PARAM_POSTSCRIPT }}"
+      REGISTRY_USER: "${{inputs.REGISTRY_USER}}"
+      REGISTRY_PASSWORD: "${{ inputs.REGISTRY_PASSWORD }}"
+      REGISTRY_URL: "${{ inputs.REGISTRY_URL }}"

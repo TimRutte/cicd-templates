@@ -1,0 +1,73 @@
+name: Build GoLang Binary
+description: |
+  Build your Go-Application.
+  All internal dependencies are cloned via HTTPS, instead of Git-SSH.
+  Before the build process the Job will call the `pre_build.sh` script, located in the `CICD_DIR` with `PARAM_PRESCRIPT`. If the file not exist, nothing will happen.
+  After the build process the Job will call the `post_build.sh` script, located in the `CICD_DIR` with `POST_PRESCRIPT`. If the file not exist, nothing will happen.
+author: 'Tim Rutte <info@timrutte.de>'
+inputs:
+  APP_PATH:
+    description: "Path to app directory"
+    default: "./app/"
+    required: true
+  OUTPUT_FILE:
+    description: "Path of output file"
+    default: "./bin/app"
+    required: true
+
+  CICD_DIR:
+    description: "Default CI/CD directory, used for special files like pre_deployment-scripts"
+    default: ".cicd"
+    required: true
+  PARAM_PRESCRIPT:
+    description: "Parameter for pre_build.sh"
+    default: ""
+    required: false
+  PARAM_POSTSCRIPT:
+    description: "Parameter for post_build.sh"
+    default: ""
+    required: false
+
+  CI_JOB_TOKEN:
+    description: "Token used for authentication against CI_SERVER_HOST"
+    default: "${{ github.token }}"
+    required: true
+  CI_SERVER_HOST:
+    description: "Server host, e.g. github.com"
+    default: "github.com"
+    required: true
+ 
+  
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout Repo
+      uses: actions/checkout@v3
+
+    - name: "Install golang"
+      uses: actions/setup-go@v3
+
+    - name: Set git insteadOf rules
+      shell: bash
+      run: |
+        git config --global --add url."https://${{ inputs.CI_JOB_TOKEN }}@${{ inputs.CI_SERVER_HOST }}/".insteadOf "ssh://git@${{ inputs.CI_SERVER_HOST }}/"
+        git config --global --add url."https://${{ inputs.CI_JOB_TOKEN }}@${{ inputs.CI_SERVER_HOST }}/".insteadOf "ssh://${{ inputs.CI_SERVER_HOST }}/"
+        git config --global --add url."https://${{ inputs.CI_JOB_TOKEN }}@${{ inputs.CI_SERVER_HOST }}/".insteadOf "git://${{ inputs.CI_SERVER_HOST }}/"
+        git config --global --add url."https://${{ inputs.CI_JOB_TOKEN }}@${{ inputs.CI_SERVER_HOST }}/".insteadOf "https://${{ inputs.CI_SERVER_HOST }}/"
+
+    - name: Run script
+      shell: bash
+      run: |
+        if test -f "${{ inputs.CICD_DIR }}/pre_build.sh"; then bash "${{ inputs.CICD_DIR }}/pre_build.sh" ${{ inputs.PARAM_PRESCRIPT }}; fi
+        go build -ldflags "-s -w" -o "${{ inputs.OUTPUT_FILE }}" "${{ inputs.APP_PATH }}"
+        if test -f "${{ inputs.CICD_DIR }}/post_build.sh"; then bash "${{ inputs.CICD_DIR }}/post_build.sh" ${{ inputs.PARAM_POSTSCRIPT }}; fi
+
+    - name: Remove git insteadOf rules
+      shell: bash
+      run: git config --global --remove-section url."https://${{ inputs.CI_JOB_TOKEN }}@${{ inputs.CI_SERVER_HOST }}/"
+
+    - uses: actions/upload-artifact@v3
+      if: success()
+      with:
+        name: artifact-results
+        path: ${{ inputs.APP_PATH }}

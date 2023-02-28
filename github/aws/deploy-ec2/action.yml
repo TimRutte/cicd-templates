@@ -1,0 +1,130 @@
+name: 'Deploy to EC2 instance'
+description: |
+  With this template you can automate your code deployment to EC2-Instances.
+  This template will run the pre_deployment.sh and post_deployment.sh scripts, as described on CI/CD - Special files.
+  We will pack your code as tar.gz, upload it and replace your current DEPLOYMENT_PATH. These steps are executed by the snippets actions `packCode` and `deployCode`.
+author: 'Tim Rutte <info@timrutte.de>'
+inputs:
+  INSTANCE_ID:
+    description: "ID of old EC2 instance"
+    required: true
+
+  DEPLOYMENT_PATH:
+    description: "Path for deployment on remote host"
+    default: "/var/www/public_html"
+    required: true
+  TEMP_DEPLOYMENT_PATH:
+    description: ""
+    default: "/tmp/deployment_${{ github.event.repository.name }}_${{ github.sha }}/"
+    required: true
+
+  AWS_ACCESS_KEY_ID:
+    description: "AWS access key id"
+    required: true
+  AWS_SECRET_ACCESS_KEY:
+    description: "AWS secret access key"
+    required: true
+  AWS_DEFAULT_REGION:
+    description: "Default AWS region"
+    default: "eu-west-1"
+    required: true
+  AWS_SG_ID:
+    description: "Security Group ID you need to modify"
+    required: true
+
+  SSH_PRIVATEKEY:
+    description: "SSH private key to access EC2 instance, must be without passphrase"
+    required: true
+  SSH_USER:
+    description: "SSH user for remote host"
+    default: "ubuntu"
+    required: true
+  SSH_PORT:
+    description: "SSH port of remote host"
+    default: "22"
+    required: true
+
+  EXCLUDE_OPTS:
+    description: ""
+    required: false
+
+  CICD_DIR:
+    description: "Default CI/CD directory, used for special files like pre_deployment-scripts"
+    default: ".cicd"
+    required: true
+  PARAM_PRESCRIPT:
+    description: "Parameter for pre_build.sh"
+    default: ""
+    required: false
+  PARAM_POSTSCRIPT:
+    description: "Parameter for post_build.sh"
+    default: ""
+    required: false
+
+runs:
+  using: "composite"
+  steps:
+
+  - name: Configure AWS Credentials
+    uses: aws-actions/configure-aws-credentials@v1
+    with:
+      aws-access-key-id: ${{ inputs.AWS_ACCESS_KEY_ID }}
+      aws-secret-access-key: ${{ inputs.AWS_SECRET_ACCESS_KEY }}
+      aws-region: ${{ inputs.AWS_DEFAULT_REGION }}
+
+  - name: Run script
+    shell: bash
+    id: getServerIP
+    run: |
+      SERVERIP=$(aws ec2 describe-instances --instance-ids ${{ inputs.INSTANCE_ID }} --output text --query 'Reservations[].Instances[].NetworkInterfaces[].Association.PublicIp')
+      echo "SERVER_IP=$SERVERIP" >> $GITHUB_ENV
+      echo "Got server IP ${SERVERIP:?}"
+      # Create SSH Agent
+      mkdir -p $HOME/.ssh ; chmod 700 $HOME/.ssh
+      eval $(ssh-agent -s)
+      ssh-add <(echo "${{ inputs.SSH_PRIVATEKEY }}")
+      ssh-add -L
+      bash "${{ inputs.CICD_DIR }}/pre_deployment.sh" ${{ inputs.PARAM_PRESCRIPT }} || exit 1
+
+  - name: Allow GitHub runner IP to Security Group
+    uses: xvpn/kp_cicd_templates/aws/enable-runner-sg@v2
+    with:
+      AWS_ACCESS_KEY_ID: ${{ inputs.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ inputs.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ inputs.AWS_DEFAULT_REGION }}
+      AWS_SG_ID: ${{ inputs.AWS_SG_ID }}
+
+  - uses: xvpn/kp_cicd_templates/snippets/packCode@v2
+    id: packCode
+    with:
+      CICD_DIR: ${{ inputs.CICD_DIR }}
+
+  # @TODO: Find a way to use the snippets/deployCode here
+  - name: Deploy code
+    shell: bash
+    run: |
+      echo "Change StrictHostKeyChecking parameter"
+      echo -e "Host *\n\tUserKnownHostsFile /dev/null\n\tStrictHostKeyChecking no" > $HOME/.ssh/config
+      echo "Prepare ${{ inputs.TEMP_DEPLOYMENT_PATH }} dir"
+      ssh -p ${{ inputs.SSH_PORT }} ${{ inputs.SSH_USER }}@${{ env.SERVER_IP }} "mkdir -p ${{ inputs.TEMP_DEPLOYMENT_PATH }}"
+      echo "Sync code"
+      rsync -avz -e "ssh -p ${{ inputs.SSH_PORT }}" "${{ steps.packCode.outputs.FILEPATH_ARCHIVE }}" ${{ inputs.SSH_USER }}@${{ env.SERVER_IP }}:/tmp/deployment_${{ github.event.repository.name }}_${{ github.sha }}.tar.gz
+      echo "Unpack code to /tmp/deployment_${{ github.event.repository.name }}_${{ github.sha }}"
+      ssh -p ${{ inputs.SSH_PORT }} ${{ inputs.SSH_USER }}@${{ env.SERVER_IP }} "cd ${{ inputs.TEMP_DEPLOYMENT_PATH }} && tar xfvz /tmp/deployment_${{ github.event.repository.name }}_${{ github.sha }}.tar.gz && rm /tmp/deployment_${{ github.event.repository.name }}_${{ github.sha }}.tar.gz"
+      echo "Remove local packed code."
+      rm "${{ steps.packCode.outputs.FILEPATH_ARCHIVE }}"
+
+  - name: Replace old code
+    shell: bash
+    run: |
+      echo "Replace old code in ${{ inputs.DEPLOYMENT_PATH }}"
+      ssh -p ${{ inputs.SSH_PORT }} ${{ inputs.SSH_USER }}@${{ env.SERVER_IP }} "sudo rm -rf "${{ inputs.DEPLOYMENT_PATH }}" && sudo mv ${{ inputs.TEMP_DEPLOYMENT_PATH }} ${{ inputs.DEPLOYMENT_PATH }}"
+      ssh -p ${{ inputs.SSH_PORT }} ${{ inputs.SSH_USER }}@${{ env.SERVER_IP }} "cd ${{ inputs.DEPLOYMENT_PATH }} && bash ${{ inputs.CICD_DIR }}/post_deployment.sh ${{ inputs.PARAM_POSTSCRIPT }}"
+
+  - name: Remove GitHub runner IP to Security Group
+    uses: xvpn/kp_cicd_templates/aws/disable-runner-sg@v2
+    with:
+      AWS_ACCESS_KEY_ID: ${{ inputs.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ inputs.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ inputs.AWS_DEFAULT_REGION }}
+      AWS_SG_ID: ${{ inputs.AWS_SG_ID }}

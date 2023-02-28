@@ -1,0 +1,27 @@
+name: 'packCode'
+description: 'Pack Code'
+author: 'Tim Rutte <info@timrutte.de>'
+inputs:
+  CICD_DIR:
+    description: "Default CI/CD directory, used for special files like pre_deployment-scripts"
+    default: ".cicd"
+    required: true
+
+outputs:
+  FILEPATH_ARCHIVE:
+    description: "Path to created archive"
+    value: ${{ steps.filepath.outputs.filepathArchive }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Run script
+      shell: bash
+      run: |
+        touch "${{ inputs.CICD_DIR }}/deployignore"
+        echo "Packing code"
+        tar --create --gzip --exclude-vcs --exclude-from="${{ inputs.CICD_DIR }}/deployignore" --file "${{ runner.temp }}/deployment_${{ github.event.repository.name }}_${{ github.sha }}.tar.gz" ${EXCLUDE_OPTS} ./ || exit 1
+    - id: filepath
+      shell: bash
+      run: echo "filepathArchive=${{ runner.temp }}/deployment_${{ github.event.repository.name }}_${{ github.sha }}.tar.gz" >> $GITHUB_OUTPUT
+

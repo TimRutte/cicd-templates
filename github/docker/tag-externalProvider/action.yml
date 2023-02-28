@@ -1,0 +1,46 @@
+name: Retag Docker Image
+description: |
+  Sometimes you need to retag your Docker image, e.g. you want to build the newest version with a version tag like :1.2.3 and also want to tag it as :latest, rebuild is a bad option here.
+  The resulted image will be pushed to the repository.
+author: 'Tim Rutte <info@timrutte.de>'
+inputs:
+  IMAGE_NAME:
+    description: "Old image name"
+    required: true
+    #default: "${{ env.AWS_REGISTRY }}/${{ github.event.repository.name }}:${{ github.ref_name }}"
+  NEW_NAME:
+    description: "new image name"
+    required: true
+    #default: "${{ env.AWS_REGISTRY }}/${{ github.event.repository.name }}:latest"
+
+  REGISTRY_USER:
+    description: "User to access remote registry"
+    required: false
+  REGISTRY_PASSWORD:
+    description: "Password to access remote registry"
+    required: false
+  REGISTRY_URL:
+    description: "Remote registry URL"
+    required: false
+
+runs:
+  using: "composite"
+  steps:
+  - name: "Login to REGISTRY_URL, if credentials are present."
+    shell: bash
+    run: |
+      if [[ -n "${{ inputs.REGISTRY_USER }}" && -n "${{ inputs.REGISTRY_PASSWORD }}" && -n "${{ inputs.REGISTRY_URL }}" ]]; then
+        docker login -u "${{ inputs.REGISTRY_USER }}" -p "${{ inputs.REGISTRY_PASSWORD }}" "${{ inputs.REGISTRY_URL }}";
+      fi
+
+  - name: Set new tag and push
+    shell: bash
+    run: |
+      docker inspect "${{ inputs.IMAGE_NAME }}" || docker pull "${{ inputs.IMAGE_NAME }}"
+      docker image tag "${{ inputs.IMAGE_NAME }}" "${{ inputs.NEW_NAME }}"
+      docker push "${{ inputs.NEW_NAME }}"
+
+  - name: "Docker logout, if credentials are present."
+    shell: bash
+    run: |
+      if [[ -z "${{ inputs.REGISTRY_URL }}" ]]; then docker logout "${{ inputs.REGISTRY_URL }}"; fi
