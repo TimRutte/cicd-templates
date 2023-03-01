@@ -87,14 +87,14 @@ runs:
       bash "${{ inputs.CICD_DIR }}/pre_deployment.sh" ${{ inputs.PARAM_PRESCRIPT }} || exit 1
 
   - name: Allow GitHub runner IP to Security Group
-    uses: xvpn/kp_cicd_templates/aws/enable-runner-sg@v2
+    uses: TimRutte/cicd-templates/github/aws/enable-runner-sg@v1
     with:
       AWS_ACCESS_KEY_ID: ${{ inputs.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ inputs.AWS_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION: ${{ inputs.AWS_DEFAULT_REGION }}
       AWS_SG_ID: ${{ inputs.AWS_SG_ID }}
 
-  - uses: xvpn/kp_cicd_templates/snippets/packCode@v2
+  - uses: TimRutte/cicd-templates/github/snippets/packCode@v1
     id: packCode
     with:
       CICD_DIR: ${{ inputs.CICD_DIR }}
@@ -122,7 +122,7 @@ runs:
       ssh -p ${{ inputs.SSH_PORT }} ${{ inputs.SSH_USER }}@${{ env.SERVER_IP }} "cd ${{ inputs.DEPLOYMENT_PATH }} && bash ${{ inputs.CICD_DIR }}/post_deployment.sh ${{ inputs.PARAM_POSTSCRIPT }}"
 
   - name: Remove GitHub runner IP to Security Group
-    uses: xvpn/kp_cicd_templates/aws/disable-runner-sg@v2
+    uses: TimRutte/cicd-templates/github/aws/disable-runner-sg@v1
     with:
       AWS_ACCESS_KEY_ID: ${{ inputs.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ inputs.AWS_SECRET_ACCESS_KEY }}
