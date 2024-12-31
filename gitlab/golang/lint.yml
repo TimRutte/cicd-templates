@@ -1,0 +1,8 @@
+.golang-lint:
+  stage: lint
+  image: golang:${GO_VERSION}
+  before_script:
+    - export PATH=$PATH:$GOPATH/bin
+    - go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+  script:
+    - golangci-lint run
